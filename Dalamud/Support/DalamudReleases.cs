@@ -15,7 +15,7 @@ namespace Dalamud.Support;
 [ServiceManager.EarlyLoadedService]
 internal class DalamudReleases : IServiceType
 {
-    private const string VersionInfoUrl = "https://kamori.goats.dev/Dalamud/Release/VersionInfo?track={0}";
+    private const string VersionInfoUrl = "https://ffxivplugins.commslink.net/Dalamud/Release/VersionInfo?track={0}";
 
     private readonly HappyHttpClient httpClient;
     private readonly DalamudConfiguration config;
