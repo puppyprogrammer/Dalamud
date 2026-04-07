@@ -1,0 +1,25 @@
+name: Tag last-known-good
+# Manually triggered. Tags current HEAD as lkg-YYYY-MM-DD so we have a clean rollback target.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create LKG tag
+        run: |
+          TAG="lkg-$(date -u +%Y-%m-%d)"
+          git config user.name  "ffxivplugins-bot"
+          git config user.email "bot@ffxivplugins.commslink.net"
+          git tag -a "$TAG" -m "Last-known-good build $(date -u +%Y-%m-%d)"
+          git push origin "$TAG"
+          echo "Tagged HEAD as $TAG"
