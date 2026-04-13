@@ -115,6 +115,21 @@ internal record PluginManifest : IPluginManifest
     public string DownloadLinkTesting { get; init; } = null!;
 
     /// <summary>
+    /// Gets the SHA-256 hash of the install ZIP archive. When present, the downloaded
+    /// archive is verified against this hash before extraction. A mismatch aborts installation.
+    /// Hex-encoded lowercase, e.g. "a1b2c3d4...". Null means the plugin has not been hash-verified
+    /// (backwards-compatible with upstream manifests that lack this field).
+    /// </summary>
+    [JsonProperty]
+    public string? DownloadHashSha256 { get; init; }
+
+    /// <summary>
+    /// Gets the SHA-256 hash of the testing ZIP archive (same semantics as DownloadHashSha256).
+    /// </summary>
+    [JsonProperty]
+    public string? TestingDownloadHashSha256 { get; init; }
+
+    /// <summary>
     /// Gets the required Dalamud load step for this plugin to load. Takes precedence over LoadPriority.
     /// Valid values are:
     /// 0. During Framework.Tick, when drawing facilities are available.
