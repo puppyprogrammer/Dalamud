@@ -23,7 +23,7 @@ namespace Dalamud.Interface.Internal.Windows;
 /// </summary>
 public class BranchSwitcherWindow : Window
 {
-    private const string BranchInfoUrl = "https://kamori.goats.dev/Dalamud/Release/Meta";
+    private const string BranchInfoUrl = "https://ffxivplugins.commslink.net/Dalamud/Release/Meta";
 
     private Dictionary<string, VersionEntry>? branches;
     private int selectedBranchIndex;

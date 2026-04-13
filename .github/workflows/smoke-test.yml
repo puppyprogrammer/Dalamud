@@ -1,0 +1,42 @@
+name: Smoke test
+# Asserts our patched URLs are still present in source.
+# If this fails, an upstream commit (or a fat-fingered local edit) has reverted our lockout protection.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  url-assertions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert no kamori.goats.dev references in patched files
+        run: |
+          FILES=(
+            "Dalamud/Plugin/Internal/Types/PluginRepository.cs"
+            "Dalamud/Support/DalamudReleases.cs"
+            "Dalamud/Interface/Internal/Windows/BranchSwitcherWindow.cs"
+            "Dalamud/Interface/Internal/Windows/PluginInstaller/DalamudChangelogManager.cs"
+          )
+          fail=0
+          for f in "${FILES[@]}"; do
+            if grep -q "kamori.goats.dev" "$f"; then
+              echo "::error file=$f::Contains kamori.goats.dev — patch reverted"
+              fail=1
+            fi
+            if ! grep -q "ffxivplugins.commslink.net" "$f"; then
+              echo "::error file=$f::Missing ffxivplugins.commslink.net — patch missing"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Assert MainRepoUrl points at our infra
+        run: |
+          grep -q 'MainRepoUrl = "https://ffxivplugins.commslink.net/Plugin/PluginMaster"' \
+            Dalamud/Plugin/Internal/Types/PluginRepository.cs \
+            || { echo "::error::MainRepoUrl constant has drifted"; exit 1; }

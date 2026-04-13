@@ -1,0 +1,117 @@
+name: Upstream sync
+# Daily check for new commits in goatcorp/Dalamud. Opens a PR if anything new.
+# NEVER auto-merges — human review required.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "ffxivplugins-bot"
+          git config user.email "bot@ffxivplugins.commslink.net"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/goatcorp/Dalamud.git
+          git fetch upstream master
+
+      - name: Check for new commits
+        id: check
+        run: |
+          ours=$(git rev-parse HEAD)
+          theirs=$(git rev-parse upstream/master)
+          echo "ours=$ours"   >> $GITHUB_OUTPUT
+          echo "theirs=$theirs" >> $GITHUB_OUTPUT
+          if git merge-base --is-ancestor "$theirs" "$ours"; then
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
+            echo "Already up to date — no PR needed."
+          else
+            echo "up_to_date=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create merge branch
+        if: steps.check.outputs.up_to_date == 'false'
+        id: branch
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          BRANCH="merge/upstream-$DATE"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          git checkout -B "$BRANCH"
+          if git merge upstream/master --no-edit; then
+            echo "conflict=false" >> $GITHUB_OUTPUT
+          else
+            echo "conflict=true" >> $GITHUB_OUTPUT
+            git merge --abort || true
+            git checkout -B "$BRANCH" upstream/master
+          fi
+          git push --force origin "$BRANCH"
+
+      - name: Detect sensitive file changes
+        if: steps.check.outputs.up_to_date == 'false'
+        id: sensitive
+        run: |
+          SENSITIVE=(
+            "Dalamud/Plugin/Internal/Types/PluginRepository.cs"
+            "Dalamud/Support/DalamudReleases.cs"
+            "Dalamud/Interface/Internal/Windows/BranchSwitcherWindow.cs"
+            "Dalamud/Interface/Internal/Windows/PluginInstaller/DalamudChangelogManager.cs"
+          )
+          touched=""
+          for f in "${SENSITIVE[@]}"; do
+            if git diff --name-only master..HEAD | grep -qx "$f"; then
+              touched="$touched $f"
+            fi
+          done
+          if [ -n "$touched" ]; then
+            echo "touched=true" >> $GITHUB_OUTPUT
+            echo "files=$touched" >> $GITHUB_OUTPUT
+          else
+            echo "touched=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Open PR
+        if: steps.check.outputs.up_to_date == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.branch }}"
+          CONFLICT="${{ steps.branch.outputs.conflict }}"
+          SENSITIVE_TOUCHED="${{ steps.sensitive.outputs.touched }}"
+          SENSITIVE_FILES="${{ steps.sensitive.outputs.files }}"
+
+          LABELS="upstream-sync"
+          BODY="Automated daily sync from \`goatcorp/Dalamud@${{ steps.check.outputs.theirs }}\`."
+          BODY="$BODY"$'\n\n'"**Review required.** This PR will not auto-merge."
+
+          if [ "$CONFLICT" = "true" ]; then
+            LABELS="$LABELS,has-conflicts"
+            BODY="$BODY"$'\n\n'":warning: **Merge conflict** — branch was reset to upstream/master. You will need to manually re-apply our patches."
+          fi
+
+          if [ "$SENSITIVE_TOUCHED" = "true" ]; then
+            LABELS="$LABELS,touches-patched-files"
+            BODY="$BODY"$'\n\n'":rotating_light: **Touches files we patched in Phase 3.** Inspect carefully before merging:"$'\n'"$SENSITIVE_FILES"
+          fi
+
+          gh pr create \
+            --title "Upstream sync $(date -u +%Y-%m-%d)" \
+            --body "$BODY" \
+            --base master \
+            --head "$BRANCH" \
+            --label "$LABELS" || echo "PR may already exist — that's OK"
