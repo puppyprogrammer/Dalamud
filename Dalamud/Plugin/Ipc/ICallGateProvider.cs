@@ -21,6 +21,14 @@ public interface ICallGateProvider
 
     /// <inheritdoc cref="CallGatePubSubBase.GetContext"/>
     public IpcContext? GetContext();
+
+    /// <summary>
+    /// Restricts which plugins may invoke this channel's Action/Func. Only plugins whose
+    /// InternalName is in the list will be permitted; all others receive an
+    /// <see cref="UnauthorizedAccessException"/>. Pass null to allow all callers (the default).
+    /// </summary>
+    /// <param name="pluginInternalNames">InternalNames of plugins allowed to call, or null for unrestricted.</param>
+    public void SetAllowedCallers(params string[]? pluginInternalNames);
 }
 
 /// <inheritdoc cref="ICallGateProvider"/>

@@ -67,6 +67,10 @@ internal abstract class CallGatePubSubBase
     public void UnregisterFunc()
         => this.Channel.Func = null;
 
+    /// <inheritdoc cref="ICallGateProvider.SetAllowedCallers"/>
+    public void SetAllowedCallers(params string[]? pluginInternalNames)
+        => this.Channel.SetAllowedCallers(pluginInternalNames);
+
     /// <summary>
     /// Gets the current context for this IPC call. This will only be present when called from within an IPC action
     /// or function handler, and will be null otherwise.

@@ -33,6 +33,13 @@ internal class CallGateChannel
     private ImmutableList<Delegate>? subscriptionsCopy;
 
     /// <summary>
+    /// Optional set of plugin InternalNames that are allowed to invoke this channel's
+    /// Action/Func. When null, all callers are permitted (backwards-compatible default).
+    /// When non-null, only plugins whose InternalName is in the set may call through.
+    /// </summary>
+    private ImmutableHashSet<string>? allowedCallers;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="CallGateChannel"/> class.
     /// </summary>
     /// <param name="name">The name of this IPC registration.</param>
@@ -112,6 +119,20 @@ internal class CallGateChannel
     }
 
     /// <summary>
+    /// Sets the list of plugin InternalNames that are permitted to invoke this channel.
+    /// Pass null to allow all callers (the default). Pass an empty array to deny all.
+    /// </summary>
+    /// <param name="pluginInternalNames">The InternalNames to allow, or null for unrestricted.</param>
+    internal void SetAllowedCallers(string[]? pluginInternalNames)
+    {
+        this.allowedCallers = pluginInternalNames?.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase);
+        Log.Information(
+            "IPC channel {Name}: allowed callers set to {Callers}",
+            this.Name,
+            pluginInternalNames != null ? string.Join(", ", pluginInternalNames) : "(all)");
+    }
+
+    /// <summary>
     /// Invoke an action registered for inter-plugin communication.
     /// </summary>
     /// <param name="args">Action arguments.</param>
@@ -120,6 +141,8 @@ internal class CallGateChannel
     {
         if (this.Action == null)
             throw new IpcNotReadyError(this.Name);
+
+        this.EnforceCallerAccess();
 
         var methodInfo = this.Action.GetMethodInfo();
         this.CheckAndConvertArgs(args, methodInfo);
@@ -139,6 +162,8 @@ internal class CallGateChannel
         if (this.Func == null)
             throw new IpcNotReadyError(this.Name);
 
+        this.EnforceCallerAccess();
+
         var methodInfo = this.Func.GetMethodInfo();
         this.CheckAndConvertArgs(args, methodInfo);
 
@@ -148,6 +173,31 @@ internal class CallGateChannel
             result = this.ConvertObject(result, typeof(TRet));
 
         return (TRet)result;
+    }
+
+    /// <summary>
+    /// Checks whether the current caller (from IpcContext) is in the allowed list.
+    /// No-op when allowedCallers is null (unrestricted — the default).
+    /// </summary>
+    private void EnforceCallerAccess()
+    {
+        if (this.allowedCallers == null)
+            return;
+
+        var ctx = this.GetInvocationContext();
+        var callerName = ctx?.SourcePlugin?.InternalName;
+
+        if (callerName != null && this.allowedCallers.Contains(callerName))
+            return;
+
+        Log.Warning(
+            "IPC access denied: plugin {Caller} tried to invoke channel {Channel} but is not in the allowed list",
+            callerName ?? "(unknown)",
+            this.Name);
+
+        throw new UnauthorizedAccessException(
+            $"Plugin '{callerName ?? "(unknown)"}' is not authorized to call IPC channel '{this.Name}'. " +
+            "The provider has restricted this channel to specific callers.");
     }
 
     /// <summary>
