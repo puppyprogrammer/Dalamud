@@ -87,13 +87,36 @@ public static class FilesystemUtil
     }
 
     /// <summary>
-    /// Generates a temporary file name.
+    /// Generates a secure temporary directory path and creates it atomically.
+    /// The directory is created inside a Dalamud-specific subdirectory of the user's
+    /// temp folder with a random name. After creation, we verify it is not a symlink
+    /// or junction (defense against symlink-race attacks in shared temp directories).
     /// </summary>
-    /// <returns>A temporary file name that is almost guaranteed to be unique.</returns>
+    /// <returns>The full path to the newly created temporary directory.</returns>
     internal static string GetTempFileName()
     {
-        // https://stackoverflow.com/a/50413126
-        return Path.Combine(Path.GetTempPath(), "dalamud_" + Guid.NewGuid());
+        // Use a Dalamud-specific subdirectory to reduce exposure to other processes
+        // writing to the shared %TEMP% root.
+        var baseTempDir = Path.Combine(Path.GetTempPath(), "Dalamud");
+        Directory.CreateDirectory(baseTempDir);
+
+        var dirName = "dalamud_" + Guid.NewGuid();
+        var fullPath = Path.Combine(baseTempDir, dirName);
+
+        // Create immediately — closes the TOCTOU window between name generation and use.
+        var dirInfo = Directory.CreateDirectory(fullPath);
+
+        // Verify this is a real directory and not a symlink/junction an attacker planted
+        // between our name generation and CreateDirectory call.
+        if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            dirInfo.Delete(true);
+            throw new IOException(
+                $"Temp directory {fullPath} is a symlink or junction. " +
+                "This may indicate a local symlink-race attack. Aborting.");
+        }
+
+        return fullPath;
     }
 
     /// <summary>
