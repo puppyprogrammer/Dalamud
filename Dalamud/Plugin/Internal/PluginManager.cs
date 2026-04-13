@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -1353,6 +1354,8 @@ internal class PluginManager : IInternalDisposableService
     private async Task<Stream> DownloadPluginAsync(RemotePluginManifest repoManifest, bool useTesting)
     {
         var downloadUrl = useTesting ? repoManifest.DownloadLinkTesting : repoManifest.DownloadLinkInstall;
+        var expectedHash = useTesting ? repoManifest.TestingDownloadHashSha256 : repoManifest.DownloadHashSha256;
+
         var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl)
         {
             Headers =
@@ -1366,7 +1369,40 @@ internal class PluginManager : IInternalDisposableService
         var response = await this.happyHttpClient.SharedHttpClient.SendAsync(request);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadAsStreamAsync();
+        // Buffer the entire download so we can hash-verify before passing to extraction.
+        var ms = new MemoryStream();
+        await (await response.Content.ReadAsStreamAsync()).CopyToAsync(ms);
+        ms.Position = 0;
+
+        if (!string.IsNullOrEmpty(expectedHash))
+        {
+            // Compute SHA-256 and compare against the manifest hash.
+            var actualHash = Convert.ToHexString(SHA256.HashData(ms.ToArray())).ToLowerInvariant();
+            expectedHash = expectedHash.Trim().ToLowerInvariant();
+
+            if (actualHash != expectedHash)
+            {
+                throw new IOException(
+                    $"SHA-256 mismatch for plugin {repoManifest.InternalName}: expected {expectedHash}, got {actualHash}. " +
+                    "The download may have been tampered with or corrupted in transit. Installation aborted.");
+            }
+
+            Log.Information(
+                "SHA-256 verified for {PluginName}: {Hash}",
+                repoManifest.InternalName,
+                actualHash);
+
+            ms.Position = 0;
+        }
+        else
+        {
+            Log.Warning(
+                "Plugin {PluginName} has no SHA-256 hash in manifest — skipping integrity check. " +
+                "Consider using a plugin source that provides download hashes.",
+                repoManifest.InternalName);
+        }
+
+        return ms;
     }
 
     /// <summary>
